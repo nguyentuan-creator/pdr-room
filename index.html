@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0f172a">
+  <title>PDR Room – Định vị bước chân trong phòng 10 m</title>
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <h1>PDR Room</h1>
+    <p>Định vị trong phòng trống 10 m × 10 m bằng cảm biến bước chân (PDR) — không GPS, không Wi-Fi, không QR</p>
+    <span class="badge" id="badge">Chưa hoạt động</span>
+  </header>
+
+  <main>
+    <section class="card">
+      <div class="map-wrap">
+        <canvas id="room"></canvas>
+      </div>
+      <p class="hint">Chạm lên bản đồ để đặt vị trí bạn đang đứng (mặc định: tâm phòng). Chấm xanh = điểm khởi tạo, chấm đỏ = vị trí hiện tại, vòng đứt nét = sai số tích luỹ.</p>
+      <p class="warn" id="sensorHint" hidden>Thiết bị này không phát hiện cảm biến chuyển động. Trên máy tính, dùng phím mũi tên (↑ bắc, → đông, ↓ nam, ← tây) — mỗi lần bấm là 1 bước chân.</p>
+    </section>
+
+    <section class="card">
+      <h2>Bật cảm biến và đi bộ</h2>
+      <div class="btn-row">
+        <button class="btn btn-primary btn-big" id="btnStart">Bật cảm biến &amp; Bắt đầu</button>
+        <button class="btn btn-big" id="btnStop" disabled>Dừng</button>
+        <button class="btn btn-ghost btn-big" id="btnReset">Đặt lại</button>
+      </div>
+      <label class="field">
+        <span>Chiều dài 1 bước chân (m)</span>
+        <input type="number" id="stepLen" value="0.7" min="0.4" max="1.0" step="0.05">
+      </label>
+      <p class="hint">Mặc định 0,7 m (đi bộ người trưởng thành). Bước dài/ngắn thì chỉnh lại cho khớp.</p>
+
+      <div class="compass-row">
+        <div class="dial">
+          <span class="n">B</span><span class="e">Đ</span><span class="s">N</span><span class="w">T</span>
+          <div class="needle" id="needle"></div>
+        </div>
+        <div class="compass-ctrl">
+          <b id="hdgText">hướng: —</b>
+          <div class="btn-row">
+            <button class="btn" id="btnLeft10">⟲ −10°</button>
+            <button class="btn" id="btnRight10">⟳ +10°</button>
+          </div>
+          <p class="hint">Nếu chấm đỏ lệch hướng so với nơi bạn thật sự đi, bấm −10°/+10° để hiệu chỉnh la bàn.</p>
+        </div>
+      </div>
+      <p class="hint">Cầm điện thoại thẳng đứng, mặt màn hình hướng về phía trước khi đi. Lắc điện thoại lên xuống cũng được tính là bước — thuật toán nhìn vào dao động.</p>
+    </section>
+
+    <section class="card">
+      <h2>Trạng thái định vị</h2>
+      <div class="stats">
+        <div><span>Số bước chân</span><b id="stSteps">0</b></div>
+        <div><span>Quãng đường</span><b id="stDist">0 m</b></div>
+        <div><span>Vị trí (x, y)</span><b id="stPos">—</b></div>
+        <div><span>Hướng đi</span><b id="stHdg">—</b></div>
+        <div><span>Sai số ước tính</span><b id="stDrift">± 0 m</b></div>
+        <div><span>Số lần chạm tường</span><b id="stWall">0</b></div>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="btnSimStep">Mô phỏng 10 bước về hướng hiện tại</button>
+      </div>
+    </section>
+
+    <details class="card notes">
+      <summary>PDR hoạt động thế nào?</summary>
+      <ul>
+        <li><b>Gia tốc kế</b> (kèm trọng lực, ~9,81 m/s²): lọc EMA tách dao động "nảy" của thân người khi bước chân; mỗi đỉnh dao động đủ lớn (≥ 1,35 m/s²) và cách nhau ≥ 260 ms được tính là 1 bước.</li>
+        <li><b>La bàn số</b>: iOS cho <code>webkitCompassHeading</code>, Android cho <code>alpha</code> tuyệt đối — quy về hướng 0–360° tính từ Bắc.</li>
+        <li><b>Con quay hồi chuyển</b> được hệ điều hành hợp nhất sẵn vào đầu ra hướng (sensor fusion); trình duyệt không expose riêng gyro.</li>
+        <li><b>Cập nhật vị trí</b>: mỗi bước → <code>x += L·sin(θ)</code>, <code>y −= L·cos(θ)</code>. Điểm khởi tạo do bạn chạm chọn — nó đóng vai trò mốc tham chiếu duy nhất, thay cho việc quét QR.</li>
+        <li><b>Sai số cộng dồn</b> là bản chất của PDR: ước tính-growing theo √số bước (vòng tròn đứt nét trên bản đồ). La bàn trong phòng bê tông cốt thép cũng bị lệch — vì vậy có nút hiệu chỉnh ±10°.</li>
+        <li>Trong thực tế ngoài phòng lab, PDR thuần cần các mốc hiệu chỉnh định kỳ (QR, Wi-Fi RTT, beacon BLE) để "neo" lại vị trí — đúng kiến trúc "xác nhận 1 lần + tự theo dõi" của dự án chỉ đường trong trường.</li>
+      </ul>
+    </details>
+  </main>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="js/pdr.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
